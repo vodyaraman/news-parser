@@ -1,0 +1,279 @@
+/**
+ * News Parser Admin Styles
+ */
+
+/* Cards */
+.news-parser-admin .card {
+    max-width: none;
+    margin-top: 20px;
+    padding: 20px;
+}
+
+/* Form Styles */
+.news-parser-admin .form-table td {
+    padding: 15px 10px;
+}
+
+.news-parser-admin input.error {
+    border-color: #dc3232;
+}
+
+/* Status Badges */
+.news-parser-admin .status-badge {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    min-width: 100px;
+}
+
+.news-parser-admin .status-not_started { 
+    background: #e5e5e5; 
+    color: #666; 
+}
+
+.news-parser-admin .status-in_progress { 
+    background: #007cba; 
+    color: white; 
+}
+
+.news-parser-admin .status-waiting { 
+    background: #ffb900; 
+    color: #222; 
+}
+
+.news-parser-admin .status-completed { 
+    background: #46b450; 
+    color: white; 
+}
+
+.news-parser-admin .status-error { 
+    background: #dc3232; 
+    color: white; 
+}
+
+/* Parser Controls */
+.news-parser-admin .parser-controls {
+    margin: 20px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    display: flex;
+    gap: 10px;
+}
+
+.news-parser-admin .parser-controls .button {
+    min-width: 100px;
+}
+
+/* Parser Status */
+.news-parser-admin .parser-status {
+    margin-top: 15px;
+    padding: 10px 15px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+}
+
+.news-parser-admin .status-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+.news-parser-admin .status-indicator.running {
+    background-color: #46b450;
+    animation: pulse 2s infinite;
+}
+
+.news-parser-admin .status-indicator.paused {
+    background-color: #ffb900;
+}
+
+.news-parser-admin .status-indicator.idle {
+    background-color: #e5e5e5;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* Table Styles */
+#parser-sources-table td {
+    vertical-align: middle;
+}
+
+#parser-sources-table .page,
+#parser-sources-table .posts-count {
+    text-align: center;
+}
+
+.news-parser-admin .actions {
+    display: flex;
+    gap: 5px;
+}
+
+/* API Test Results */
+.news-parser-admin #api-test-result {
+    margin-left: 10px;
+    display: inline-block;
+}
+
+.news-parser-admin .api-test-result {
+    margin: 10px 0;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+.news-parser-admin .api-test-success {
+    background: #f0f9eb;
+    border: 1px solid #46b450;
+}
+
+.news-parser-admin .api-test-error {
+    background: #fef0f0;
+    border: 1px solid #dc3232;
+}
+
+.news-parser-admin .test-details {
+    margin-top: 5px;
+    font-size: 13px;
+    color: #666;
+}
+
+/* Spinner */
+.news-parser-admin .spinner {
+    float: none;
+    margin: 0 10px;
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+    .news-parser-admin .status-badge {
+        min-width: 80px;
+        font-size: 11px;
+    }
+
+    .news-parser-admin .parser-controls {
+        flex-direction: column;
+    }
+
+    .news-parser-admin .parser-controls .button {
+        width: 100%;
+    }
+
+    #parser-sources-table .actions {
+        flex-direction: column;
+    }
+
+    #parser-sources-table .actions .button {
+        width: 100%;
+        margin-bottom: 5px;
+    }
+}
+
+.news-parser-admin .category-mapping-table {
+    margin-top: 20px;
+}
+
+.news-parser-admin .category-mapping-table select {
+    width: 100%;
+    max-width: 300px;
+}
+
+.news-parser-admin .category-mapping-info {
+    margin: 15px 0;
+    padding: 10px;
+    background: #fff;
+    border-left: 4px solid #46b450;
+}
+
+/* Стили для страницы логов */
+.news-parser-admin .logs-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.news-parser-admin .logs-header h1 {
+    margin: 0;
+    margin-right: 15px;
+}
+
+.news-parser-admin .logs-filter {
+    background: #fff;
+    padding: 15px;
+    margin-bottom: 20px;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.news-parser-admin .logs-filter select,
+.news-parser-admin .logs-filter input[type="date"] {
+    min-width: 150px;
+    height: 30px;
+    margin: 0;
+}
+
+.news-parser-admin .logs-filter .button {
+    margin-left: auto;
+}
+
+/* Стили для типов логов */
+.news-parser-admin .log-type {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+
+.news-parser-admin .log-type-info {
+    background-color: #e5f5fa;
+    color: #0286c2;
+}
+
+.news-parser-admin .log-type-error {
+    background-color: #fae7e7;
+    color: #dc3232;
+}
+
+.news-parser-admin .log-type-warning {
+    background-color: #fff8e5;
+    color: #dba617;
+}
+
+.news-parser-admin .log-type-success {
+    background-color: #ecf7ed;
+    color: #46b450;
+}
+
+/* Стили для кнопок */
+.news-parser-admin #clear-logs {
+    margin-left: 10px;
+}
+
+/* Стили для таблицы логов */
+.news-parser-admin .wp-list-table td {
+    vertical-align: middle;
+}
+
+.news-parser-admin .log-count {
+    color: #666;
+    font-size: 13px;
+    font-weight: normal;
+    margin-left: 10px;
+}
