@@ -6,6 +6,7 @@ class News_Parser_Social {
      * Telegram Bot API
      */
     const TELEGRAM_API_URL = 'https://api.telegram.org/bot';
+    const INSTAGRAM_GRAPH_API_VERSION = 'v23.0';
     private $telegram_bot_token;
     private $telegram_channel_id;
     private $instagram_access_token;
@@ -34,9 +35,14 @@ class News_Parser_Social {
             return new WP_Error('invalid_post', 'Post not found');
         }
 
-        $message = "*{$post->post_title}*\n\n";
-        $message .= wp_trim_words(wp_strip_all_tags($post->post_content), 50);
-        $message .= "\n\n?? [×èòàòü ïîëíîñòüþ](" . get_permalink($post_id) . ")";
+        $title = esc_html($post->post_title);
+        $raw_excerpt = wp_trim_words(wp_strip_all_tags($post->post_content), 50, '');
+        $excerpt = esc_html(html_entity_decode($raw_excerpt, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $permalink = esc_url(get_permalink($post_id));
+
+        $message = "<b>{$title}</b>\n\n";
+        $message .= "{$excerpt}\n\n";
+        $message .= "👉 <a href=\"{$permalink}\">Читать полностью</a>";
 
         $image_url = get_the_post_thumbnail_url($post_id, 'large');
 
@@ -60,15 +66,15 @@ class News_Parser_Social {
             return new WP_Error('invalid_post', 'Post not found');
         }
 
-        // Ïîëó÷àåì èçîáðàæåíèå
+        // Получаем изображение
         $image_url = get_the_post_thumbnail_url($post_id, 'large');
         if (!$image_url) {
             return new WP_Error('no_image', 'No image found for Instagram post');
         }
 
         $caption = $post->post_title . "\n\n";
-        $caption .= wp_trim_words(wp_strip_all_tags($post->post_content), 30);
-        $caption .= "\n\n?? Ïîäðîáíåå íà ñàéòå (ññûëêà â áèî)";
+        $caption .= wp_trim_words(wp_strip_all_tags($post->post_content), 30, '…');
+        $caption .= "\n\n👉 Подробнее на сайте (ссылка в био)";
 
         $tags = get_the_tags($post_id);
         if ($tags) {
@@ -82,6 +88,76 @@ class News_Parser_Social {
     }
 
     /**
+     * Check Telegram connection and permissions
+     */
+    public function test_telegram_connection() {
+        if (empty($this->telegram_bot_token) || empty($this->telegram_channel_id)) {
+            return new WP_Error('telegram_config', 'Telegram configuration is missing');
+        }
+
+        $url = self::TELEGRAM_API_URL . $this->telegram_bot_token . '/getMe';
+        $response = wp_remote_get($url, array('timeout' => 20));
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (empty($body['ok'])) {
+            return new WP_Error('telegram_error', $body['description'] ?? 'Failed to verify Telegram bot token');
+        }
+
+        $check_chat_url = self::TELEGRAM_API_URL . $this->telegram_bot_token . '/getChat';
+        $check_chat_response = wp_remote_post($check_chat_url, array(
+            'body' => array('chat_id' => $this->telegram_channel_id),
+            'timeout' => 20
+        ));
+
+        if (is_wp_error($check_chat_response)) {
+            return $check_chat_response;
+        }
+
+        $check_chat_body = json_decode(wp_remote_retrieve_body($check_chat_response), true);
+        if (empty($check_chat_body['ok'])) {
+            return new WP_Error('telegram_chat_error', $check_chat_body['description'] ?? 'Failed to access Telegram channel');
+        }
+
+        return true;
+    }
+
+    /**
+     * Check Instagram connection and account access
+     */
+    public function test_instagram_connection() {
+        if (empty($this->instagram_access_token) || empty($this->instagram_user_id)) {
+            return new WP_Error('instagram_config', 'Instagram configuration is missing');
+        }
+
+        $url = sprintf(
+            'https://graph.facebook.com/%s/%s?fields=id,username&access_token=%s',
+            self::INSTAGRAM_GRAPH_API_VERSION,
+            rawurlencode($this->instagram_user_id),
+            rawurlencode($this->instagram_access_token)
+        );
+
+        $response = wp_remote_get($url, array('timeout' => 20));
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!empty($body['error'])) {
+            return new WP_Error('instagram_error', $body['error']['message'] ?? 'Failed to verify Instagram credentials');
+        }
+
+        if (empty($body['id'])) {
+            return new WP_Error('instagram_invalid_response', 'Invalid response while checking Instagram account');
+        }
+
+        return true;
+    }
+
+    /**
      * Send message to Telegram
      */
     private function send_telegram_message($text) {
@@ -91,7 +167,7 @@ class News_Parser_Social {
             'body' => array(
                 'chat_id' => $this->telegram_channel_id,
                 'text' => $text,
-                'parse_mode' => 'Markdown',
+                'parse_mode' => 'HTML',
                 'disable_web_page_preview' => false
             ),
             'timeout' => 30
@@ -104,8 +180,11 @@ class News_Parser_Social {
         }
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        return $body['ok'] ?? false;
+        if (empty($body['ok'])) {
+            return new WP_Error('telegram_error', $body['description'] ?? 'Telegram API request failed');
+        }
+
+        return true;
     }
 
     /**
@@ -119,7 +198,7 @@ class News_Parser_Social {
                 'chat_id' => $this->telegram_channel_id,
                 'photo' => $photo_url,
                 'caption' => $caption,
-                'parse_mode' => 'Markdown'
+                'parse_mode' => 'HTML'
             ),
             'timeout' => 30
         );
@@ -131,8 +210,11 @@ class News_Parser_Social {
         }
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        return $body['ok'] ?? false;
+        if (empty($body['ok'])) {
+            return new WP_Error('telegram_error', $body['description'] ?? 'Telegram API request failed');
+        }
+
+        return true;
     }
 
     /**
@@ -140,9 +222,9 @@ class News_Parser_Social {
      */
     private function create_instagram_post($image_url, $caption) {
         // Instagram Graph API endpoint
-        $url = "https://graph.facebook.com/v13.0/{$this->instagram_user_id}/media";
+        $url = "https://graph.facebook.com/" . self::INSTAGRAM_GRAPH_API_VERSION . "/{$this->instagram_user_id}/media";
 
-        // Ñîçäàåì Container
+        // Создаем Container
         $args = array(
             'body' => array(
                 'image_url' => $image_url,
@@ -161,11 +243,17 @@ class News_Parser_Social {
         $body = json_decode(wp_remote_retrieve_body($response), true);
         
         if (empty($body['id'])) {
-            return new WP_Error('instagram_error', 'Failed to create media container');
+            $error_message = $body['error']['message'] ?? 'Failed to create media container';
+            return new WP_Error('instagram_error', $error_message);
         }
 
-        // Ïóáëèêóåì êîíòåéíåð
-        $publish_url = "https://graph.facebook.com/v13.0/{$this->instagram_user_id}/media_publish";
+        $status_ready = $this->wait_for_instagram_container($body['id']);
+        if (is_wp_error($status_ready)) {
+            return $status_ready;
+        }
+
+        // Публикуем контейнер
+        $publish_url = "https://graph.facebook.com/" . self::INSTAGRAM_GRAPH_API_VERSION . "/{$this->instagram_user_id}/media_publish";
         
         $publish_args = array(
             'body' => array(
@@ -182,7 +270,45 @@ class News_Parser_Social {
         }
 
         $publish_body = json_decode(wp_remote_retrieve_body($publish_response), true);
-        
-        return !empty($publish_body['id']);
+        if (empty($publish_body['id'])) {
+            $error_message = $publish_body['error']['message'] ?? 'Failed to publish media container';
+            return new WP_Error('instagram_error', $error_message);
+        }
+
+        return true;
+    }
+
+    /**
+     * Wait until Instagram media container is ready
+     */
+    private function wait_for_instagram_container($creation_id) {
+        $status_url = "https://graph.facebook.com/" . self::INSTAGRAM_GRAPH_API_VERSION . "/{$creation_id}";
+        $attempts = 6;
+
+        for ($i = 0; $i < $attempts; $i++) {
+            $status_response = wp_remote_get(add_query_arg(array(
+                'fields' => 'status_code,status,error_message',
+                'access_token' => $this->instagram_access_token
+            ), $status_url), array('timeout' => 30));
+
+            if (is_wp_error($status_response)) {
+                return $status_response;
+            }
+
+            $status_body = json_decode(wp_remote_retrieve_body($status_response), true);
+            $status_code = $status_body['status_code'] ?? $status_body['status'] ?? '';
+
+            if (in_array($status_code, array('FINISHED', 'PUBLISHED'), true)) {
+                return true;
+            }
+
+            if (in_array($status_code, array('ERROR', 'EXPIRED'), true)) {
+                return new WP_Error('instagram_container_error', $status_body['error_message'] ?? 'Instagram media container error');
+            }
+
+            sleep(2);
+        }
+
+        return new WP_Error('instagram_container_timeout', 'Instagram media container is not ready yet. Try again later.');
     }
 }

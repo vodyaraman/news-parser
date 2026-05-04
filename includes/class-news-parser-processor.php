@@ -197,6 +197,7 @@ class News_Parser_Processor
                 if ($paraphrased_content) {
                     $post_content = $paraphrased_content;
                     $this->log("Контент успешно парафразирован");
+                    $this->log("Парафраз контента:\n" . $post_content, 'info', $source_url);
                 } else {
                     $this->log("Ошибка парафраза контента", 'warning');
                 }
@@ -206,6 +207,7 @@ class News_Parser_Processor
                     if ($paraphrased_excerpt) {
                         $post_excerpt = $paraphrased_excerpt;
                         $this->log("Отрывок успешно парафразирован");
+                        $this->log("Парафраз отрывка: " . $post_excerpt, 'info', $source_url);
                     }
                 }
             }
@@ -296,6 +298,7 @@ class News_Parser_Processor
             }
 
             $this->log("Успешно создан пост ID: {$post_id} (оригинальный ID: {$post['id']})");
+            $this->auto_post_to_social_networks($post_id);
             return true;
 
         } catch (Exception $e) {
@@ -521,12 +524,88 @@ class News_Parser_Processor
             return false;
         }
 
-        $model = get_option('news_parser_chatgpt_model', 'gpt-4');
-        $url = 'https://api.openai.com/v1/chat/completions';
-
+        $model = get_option('news_parser_chatgpt_model', 'gpt-4o-mini');
         $prompt = "Rephrase the following text, preserving its meaning and HTML formatting. Make the text unique: \n\n" . $text;
+        return $this->request_openai_paraphrase($api_key, $model, $prompt);
+    }
 
-        $data = array(
+    /**
+     * Auto-post imported content to configured social networks
+     */
+    private function auto_post_to_social_networks($post_id)
+    {
+        $auto_posting = get_option('news_parser_auto_posting', array());
+        if (empty($auto_posting) || !is_array($auto_posting)) {
+            return;
+        }
+
+        $social = new News_Parser_Social();
+
+        if (in_array('telegram', $auto_posting, true)) {
+            $telegram_result = $social->post_to_telegram($post_id);
+            if (is_wp_error($telegram_result) || $telegram_result !== true) {
+                $error_message = is_wp_error($telegram_result) ? $telegram_result->get_error_message() : 'Unknown Telegram API error';
+                $this->log("Ошибка автопостинга в Telegram: {$error_message}", 'warning');
+            } else {
+                $this->log("Автопостинг в Telegram выполнен успешно");
+                update_option('news_parser_telegram_posts_count', (int)get_option('news_parser_telegram_posts_count', 0) + 1);
+            }
+        }
+
+        if (in_array('instagram', $auto_posting, true)) {
+            $instagram_result = $social->post_to_instagram($post_id);
+            if (is_wp_error($instagram_result) || $instagram_result !== true) {
+                $error_message = is_wp_error($instagram_result) ? $instagram_result->get_error_message() : 'Unknown Instagram API error';
+                $this->log("Ошибка автопостинга в Instagram: {$error_message}", 'warning');
+            } else {
+                $this->log("Автопостинг в Instagram выполнен успешно");
+                update_option('news_parser_instagram_posts_count', (int)get_option('news_parser_instagram_posts_count', 0) + 1);
+            }
+        }
+    }
+
+    /**
+     * Request paraphrase from OpenAI API with endpoint fallback
+     */
+    private function request_openai_paraphrase($api_key, $model, $prompt)
+    {
+        $common_headers = array(
+            'Authorization' => 'Bearer ' . $api_key,
+            'Content-Type' => 'application/json'
+        );
+
+        $responses_payload = array(
+            'model' => $model,
+            'input' => $prompt,
+            'instructions' => 'You are a professional rewriter. Rephrase the text, preserving HTML tags and structure.',
+            'temperature' => 0.7,
+            'max_output_tokens' => 4000
+        );
+
+        $responses_request = wp_remote_post('https://api.openai.com/v1/responses', array(
+            'headers' => $common_headers,
+            'body' => wp_json_encode($responses_payload),
+            'timeout' => 60
+        ));
+
+        if (!is_wp_error($responses_request)) {
+            $responses_code = wp_remote_retrieve_response_code($responses_request);
+            $responses_body = json_decode(wp_remote_retrieve_body($responses_request), true);
+
+            if ($responses_code >= 200 && $responses_code < 300) {
+                if (!empty($responses_body['output_text'])) {
+                    return $responses_body['output_text'];
+                }
+
+                if (!empty($responses_body['output'][0]['content'][0]['text'])) {
+                    return $responses_body['output'][0]['content'][0]['text'];
+                }
+            } else {
+                $this->log("OpenAI Responses API fallback to chat/completions. HTTP {$responses_code}", 'warning');
+            }
+        }
+
+        $chat_payload = array(
             'model' => $model,
             'messages' => array(
                 array(
@@ -542,28 +621,30 @@ class News_Parser_Processor
             'max_tokens' => 4000
         );
 
-        $response = wp_remote_post($url, array(
-            'headers' => array(
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type' => 'application/json'
-            ),
-            'body' => json_encode($data),
+        $chat_request = wp_remote_post('https://api.openai.com/v1/chat/completions', array(
+            'headers' => $common_headers,
+            'body' => wp_json_encode($chat_payload),
             'timeout' => 60
         ));
 
-        if (is_wp_error($response)) {
-            $this->log("ChatGPT API Error: " . $response->get_error_message(), 'error');
+        if (is_wp_error($chat_request)) {
+            $this->log("ChatGPT API Error: " . $chat_request->get_error_message(), 'error');
             return false;
         }
 
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-
-        if (empty($body) || !isset($body['choices'][0]['message']['content'])) {
-            $this->log("ChatGPT API Error: Invalid response - " . print_r($body, true), 'error');
+        $chat_code = wp_remote_retrieve_response_code($chat_request);
+        if ($chat_code < 200 || $chat_code >= 300) {
+            $this->log("ChatGPT API Error: HTTP {$chat_code} - " . wp_remote_retrieve_body($chat_request), 'error');
             return false;
         }
 
-        return $body['choices'][0]['message']['content'];
+        $chat_body = json_decode(wp_remote_retrieve_body($chat_request), true);
+        if (empty($chat_body['choices'][0]['message']['content'])) {
+            $this->log("ChatGPT API Error: Invalid response - " . print_r($chat_body, true), 'error');
+            return false;
+        }
+
+        return $chat_body['choices'][0]['message']['content'];
     }
 
 

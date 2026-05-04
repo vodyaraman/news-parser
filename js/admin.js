@@ -12,7 +12,8 @@ jQuery(document).ready(function($) {
         statsContainer: $('.parser-stats'),
         testTelegramButton: $('.test-telegram'),
         testInstagramButton: $('.test-instagram'),
-        testChatGptButton: $('.test-chatgpt')
+        testChatGptButton: $('.test-chatgpt'),
+        loadChatGptModelsButton: $('.load-chatgpt-models')
     };
 
     let statusUpdateInterval = null;
@@ -46,6 +47,7 @@ jQuery(document).ready(function($) {
         elements.testTelegramButton.on('click', handleTestTelegram);
         elements.testInstagramButton.on('click', handleTestInstagram);
         elements.testChatGptButton.on('click', handleTestChatGpt);
+        elements.loadChatGptModelsButton.on('click', handleLoadChatGptModels);
     }
 
     // Обновление статуса парсера
@@ -205,6 +207,40 @@ jQuery(document).ready(function($) {
             complete: function() {
                 button.prop('disabled', false);
                 spinner.removeClass('is-active');
+            }
+        });
+    }
+
+    function handleLoadChatGptModels(e) {
+        e.preventDefault();
+        const button = $(this);
+        button.prop('disabled', true);
+
+        $.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: {
+                action: 'get_chatgpt_models',
+                nonce: newsParserAjax.nonce
+            },
+            success: function(response) {
+                if (!response.success || !Array.isArray(response.data)) {
+                    showNotice('error', (response.data || 'Failed to load models'));
+                    return;
+                }
+
+                const datalist = $('#chatgpt_model_suggestions');
+                datalist.empty();
+                response.data.forEach(function(modelId) {
+                    datalist.append($('<option>').attr('value', modelId));
+                });
+                showNotice('success', `Loaded ${response.data.length} models from OpenAI`);
+            },
+            error: function() {
+                showNotice('error', 'Connection error while loading models');
+            },
+            complete: function() {
+                button.prop('disabled', false);
             }
         });
     }

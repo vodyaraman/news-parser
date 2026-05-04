@@ -44,6 +44,9 @@ class News_Parser_Admin {
         add_action('wp_ajax_reparaphrase_content', array($this, 'ajax_reparaphrase_content'));
         add_action('wp_ajax_update_category_mapping', array($this, 'ajax_update_category_mapping'));
         add_action('wp_ajax_test_chatgpt', array($this, 'ajax_test_chatgpt'));
+        add_action('wp_ajax_get_chatgpt_models', array($this, 'ajax_get_chatgpt_models'));
+        add_action('wp_ajax_test_telegram', array($this, 'ajax_test_telegram'));
+        add_action('wp_ajax_test_instagram', array($this, 'ajax_test_instagram'));
         add_action('admin_post_save_chatgpt_settings', array($this, 'handle_save_chatgpt_settings'));
 
         // Admin post handlers
@@ -459,16 +462,24 @@ class News_Parser_Admin {
                                 <label for="chatgpt_model"><?php _e('Model', 'news-site-parser'); ?></label>
                             </th>
                             <td>
-                                <select name="chatgpt_model" id="chatgpt_model">
-                                    <option value="gpt-4" <?php selected(get_option('news_parser_chatgpt_model', 'gpt-4'), 'gpt-4'); ?>>
-                                        GPT-4
-                                    </option>
-                                    <option value="gpt-3.5-turbo" <?php selected(get_option('news_parser_chatgpt_model', 'gpt-4'), 'gpt-3.5-turbo'); ?>>
-                                        GPT-3.5 Turbo
-                                    </option>
-                                </select>
+                                <input type="text"
+                                    name="chatgpt_model"
+                                    id="chatgpt_model"
+                                    class="regular-text"
+                                    list="chatgpt_model_suggestions"
+                                    value="<?php echo esc_attr(get_option('news_parser_chatgpt_model', 'gpt-4o-mini')); ?>"
+                                    placeholder="gpt-4o-mini">
+                                <datalist id="chatgpt_model_suggestions">
+                                    <option value="gpt-4o-mini"></option>
+                                    <option value="gpt-4o"></option>
+                                    <option value="gpt-4.1-mini"></option>
+                                    <option value="gpt-4.1"></option>
+                                </datalist>
                                 <p class="description">
-                                    <?php _e('Select ChatGPT model to use', 'news-site-parser'); ?>
+                                    <?php _e('Enter any available OpenAI model ID (for example: gpt-4o-mini).', 'news-site-parser'); ?>
+                                </p>
+                                <p>
+                                    <button type="button" class="button load-chatgpt-models"><?php _e('Load all available models', 'news-site-parser'); ?></button>
                                 </p>
                             </td>
                         </tr>
@@ -838,7 +849,7 @@ private function get_imported_categories($with_stats = false) {
 
         register_setting('news_parser_settings', 'news_parser_chatgpt_model', array(
             'type' => 'string',
-            'default' => 'gpt-4',
+            'default' => 'gpt-4o-mini',
             'sanitize_callback' => 'sanitize_text_field'
         ));
 
@@ -1526,7 +1537,7 @@ public function handle_save_parser_settings() {
 
     if (isset($_POST['chatgpt_model'])) {
         $model = sanitize_text_field($_POST['chatgpt_model']);
-        if (in_array($model, array('gpt-4', 'gpt-3.5-turbo'))) {
+        if (!empty($model)) {
             update_option('news_parser_chatgpt_model', $model);
         }
     }
@@ -1765,7 +1776,7 @@ public function handle_save_parser_settings() {
         }
     }
 
-    public function ajax_test_chatgpt() {
+public function ajax_test_chatgpt() {
     check_ajax_referer('news_parser_ajax_nonce', 'nonce');
 
     if (!current_user_can('manage_options')) {
@@ -1781,14 +1792,41 @@ public function handle_save_parser_settings() {
         return;
     }
 
-    // Тестовый запрос к API
-    $response = wp_remote_post('https://api.openai.com/v1/chat/completions', array(
+    $model = get_option('news_parser_chatgpt_model', 'gpt-4o-mini');
+
+    // Тестовый запрос к Responses API
+    $response = wp_remote_post('https://api.openai.com/v1/responses', array(
         'headers' => array(
             'Authorization' => 'Bearer ' . $api_key,
             'Content-Type' => 'application/json'
         ),
         'body' => json_encode(array(
-            'model' => get_option('news_parser_chatgpt_model', 'gpt-4'),
+            'model' => $model,
+            'input' => 'Test connection',
+            'max_output_tokens' => 10
+        )),
+        'timeout' => 15
+    ));
+
+    if (is_wp_error($response)) {
+        wp_send_json_error($response->get_error_message());
+    }
+
+    $response_code = wp_remote_retrieve_response_code($response);
+    $body = json_decode(wp_remote_retrieve_body($response), true);
+
+    if ($response_code >= 200 && $response_code < 300 && !empty($body) && !isset($body['error'])) {
+        wp_send_json_success(__('ChatGPT connection successful!', 'news-site-parser'));
+    }
+
+    // Фолбэк к Chat Completions
+    $fallback_response = wp_remote_post('https://api.openai.com/v1/chat/completions', array(
+        'headers' => array(
+            'Authorization' => 'Bearer ' . $api_key,
+            'Content-Type' => 'application/json'
+        ),
+        'body' => wp_json_encode(array(
+            'model' => $model,
             'messages' => array(
                 array(
                     'role' => 'user',
@@ -1800,16 +1838,58 @@ public function handle_save_parser_settings() {
         'timeout' => 15
     ));
 
+    if (is_wp_error($fallback_response)) {
+        wp_send_json_error($fallback_response->get_error_message());
+    }
+
+    $fallback_body = json_decode(wp_remote_retrieve_body($fallback_response), true);
+    if (empty($fallback_body) || isset($fallback_body['error'])) {
+        wp_send_json_error($fallback_body['error']['message'] ?? $body['error']['message'] ?? 'Invalid response from API');
+    }
+
+    wp_send_json_success(__('ChatGPT connection successful!', 'news-site-parser'));
+}
+
+public function ajax_get_chatgpt_models() {
+    check_ajax_referer('news_parser_ajax_nonce', 'nonce');
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(__('Permission denied', 'news-site-parser'));
+    }
+
+    $api_key = get_option('news_parser_chatgpt_key', '');
+    if (empty($api_key)) {
+        wp_send_json_error(__('API key is not set', 'news-site-parser'));
+    }
+
+    $response = wp_remote_get('https://api.openai.com/v1/models', array(
+        'headers' => array(
+            'Authorization' => 'Bearer ' . $api_key,
+            'Content-Type' => 'application/json'
+        ),
+        'timeout' => 30
+    ));
+
     if (is_wp_error($response)) {
         wp_send_json_error($response->get_error_message());
     }
 
+    $code = wp_remote_retrieve_response_code($response);
     $body = json_decode(wp_remote_retrieve_body($response), true);
-    if (empty($body) || isset($body['error'])) {
-        wp_send_json_error($body['error']['message'] ?? 'Invalid response from API');
+
+    if ($code < 200 || $code >= 300 || empty($body['data']) || !is_array($body['data'])) {
+        wp_send_json_error($body['error']['message'] ?? 'Invalid response from models API');
     }
 
-    wp_send_json_success(__('ChatGPT connection successful!', 'news-site-parser'));
+    $models = array();
+    foreach ($body['data'] as $item) {
+        if (!empty($item['id'])) {
+            $models[] = sanitize_text_field($item['id']);
+        }
+    }
+
+    sort($models, SORT_NATURAL);
+    wp_send_json_success(array_values(array_unique($models)));
 }
 
     /**
@@ -2059,7 +2139,7 @@ public function handle_save_chatgpt_settings() {
     // Save model
     if (isset($_POST['chatgpt_model'])) {
         $model = sanitize_text_field($_POST['chatgpt_model']);
-        if (in_array($model, array('gpt-4', 'gpt-3.5-turbo'))) {
+        if (!empty($model)) {
             update_option('news_parser_chatgpt_model', $model);
         }
     }
