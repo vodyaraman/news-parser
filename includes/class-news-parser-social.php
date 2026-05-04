@@ -36,7 +36,8 @@ class News_Parser_Social {
         }
 
         $title = esc_html($post->post_title);
-        $excerpt = esc_html(wp_trim_words(wp_strip_all_tags($post->post_content), 50));
+        $excerpt_plain = wp_strip_all_tags($post->post_content);
+        $excerpt = esc_html($this->trim_with_ellipsis($excerpt_plain, 50));
         $permalink = esc_url(get_permalink($post_id));
 
         $message = "<b>{$title}</b>\n\n";
@@ -71,8 +72,12 @@ class News_Parser_Social {
             return new WP_Error('no_image', 'No image found for Instagram post');
         }
 
+        if (stripos($image_url, 'https://') !== 0) {
+            return new WP_Error('invalid_image_url', 'Instagram requires a publicly accessible HTTPS image URL');
+        }
+
         $caption = $post->post_title . "\n\n";
-        $caption .= wp_trim_words(wp_strip_all_tags($post->post_content), 30);
+        $caption .= $this->trim_with_ellipsis(wp_strip_all_tags($post->post_content), 30);
         $caption .= "\n\n👉 Подробнее на сайте (ссылка в био)";
 
         $tags = get_the_tags($post_id);
@@ -83,8 +88,63 @@ class News_Parser_Social {
             $caption .= "\n\n" . implode(' ', $hashtags);
         }
 
+        if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+            if (mb_strlen($caption) > 2200) {
+                $caption = mb_substr($caption, 0, 2199) . '…';
+            }
+        } elseif (strlen($caption) > 2200) {
+            $caption = substr($caption, 0, 2199) . '…';
+        }
+
         return $this->create_instagram_post($image_url, $caption);
     }
+
+    private function trim_with_ellipsis($text, $words_limit) {
+        $text = trim((string)$text);
+        if ($text === '') {
+            return '';
+        }
+
+        $words = preg_split('/\s+/u', $text, -1, PREG_SPLIT_NO_EMPTY);
+        if (!is_array($words) || count($words) <= $words_limit) {
+            return $text;
+        }
+
+        return implode(' ', array_slice($words, 0, $words_limit)) . '…';
+    }
+
+    private function wait_instagram_container_ready($creation_id) {
+        $status_url = sprintf(
+            'https://graph.facebook.com/%s/%s?fields=status_code,status&access_token=%s',
+            self::INSTAGRAM_GRAPH_API_VERSION,
+            rawurlencode($creation_id),
+            rawurlencode($this->instagram_access_token)
+        );
+
+        for ($i = 0; $i < 6; $i++) {
+            $status_response = wp_remote_get($status_url, array('timeout' => 20));
+            if (is_wp_error($status_response)) {
+                return $status_response;
+            }
+
+            $status_body = json_decode(wp_remote_retrieve_body($status_response), true);
+            $status_code = strtoupper((string)($status_body['status_code'] ?? $status_body['status'] ?? ''));
+
+            if ($status_code === 'FINISHED') {
+                return true;
+            }
+
+            if (in_array($status_code, array('ERROR', 'EXPIRED'), true)) {
+                $error_message = $status_body['error']['message'] ?? 'Instagram container processing failed';
+                return new WP_Error('instagram_container_status', $error_message);
+            }
+
+            sleep(2);
+        }
+
+        return new WP_Error('instagram_container_timeout', 'Instagram container is not ready for publishing yet');
+    }
+
 
     /**
      * Check Telegram connection and permissions
@@ -243,7 +303,13 @@ class News_Parser_Social {
         
         if (empty($body['id'])) {
             $error_message = $body['error']['message'] ?? 'Failed to create media container';
+            error_log('Instagram container error: ' . wp_json_encode($body));
             return new WP_Error('instagram_error', $error_message);
+        }
+
+        $container_status = $this->wait_instagram_container_ready($body['id']);
+        if (is_wp_error($container_status)) {
+            return $container_status;
         }
 
         // Публикуем контейнер
@@ -266,6 +332,7 @@ class News_Parser_Social {
         $publish_body = json_decode(wp_remote_retrieve_body($publish_response), true);
         if (empty($publish_body['id'])) {
             $error_message = $publish_body['error']['message'] ?? 'Failed to publish media container';
+            error_log('Instagram publish error: ' . wp_json_encode($publish_body));
             return new WP_Error('instagram_error', $error_message);
         }
 

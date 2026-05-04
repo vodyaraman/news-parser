@@ -4,6 +4,25 @@ if (!defined('ABSPATH')) {
 }
 
 class News_Parser_Admin {
+    private const OPENAI_MODELS = array(
+        'gpt-4.1',
+        'gpt-4.1-mini',
+        'gpt-4.1-nano',
+        'gpt-4o',
+        'gpt-4o-mini',
+        'o4-mini',
+        'o3',
+        'o3-mini'
+    );
+
+    private function get_default_openai_model() {
+        return 'gpt-4.1-mini';
+    }
+
+    private function get_openai_models() {
+        return self::OPENAI_MODELS;
+    }
+
     /**
      * The main plugin instance
      * @var News_Site_Parser
@@ -461,19 +480,13 @@ class News_Parser_Admin {
                                 <label for="chatgpt_model"><?php _e('Model', 'news-site-parser'); ?></label>
                             </th>
                             <td>
+                                <?php $selected_model = get_option('news_parser_chatgpt_model', $this->get_default_openai_model()); ?>
                                 <select name="chatgpt_model" id="chatgpt_model">
-                                    <option value="gpt-4.5" <?php selected(get_option('news_parser_chatgpt_model', 'gpt-4.5'), 'gpt-4.5'); ?>>
-                                        GPT-4.5
-                                    </option>
-                                    <option value="gpt-4.1" <?php selected(get_option('news_parser_chatgpt_model', 'gpt-4.5'), 'gpt-4.1'); ?>>
-                                        GPT-4.1
-                                    </option>
-                                    <option value="gpt-4" <?php selected(get_option('news_parser_chatgpt_model', 'gpt-4.5'), 'gpt-4'); ?>>
-                                        GPT-4
-                                    </option>
-                                    <option value="gpt-3.5-turbo" <?php selected(get_option('news_parser_chatgpt_model', 'gpt-4.5'), 'gpt-3.5-turbo'); ?>>
-                                        GPT-3.5 Turbo
-                                    </option>
+                                    <?php foreach ($this->get_openai_models() as $model_slug): ?>
+                                        <option value="<?php echo esc_attr($model_slug); ?>" <?php selected($selected_model, $model_slug); ?>>
+                                            <?php echo esc_html(strtoupper($model_slug)); ?>
+                                        </option>
+                                    <?php endforeach; ?>
                                 </select>
                                 <p class="description">
                                     <?php _e('Select ChatGPT model to use', 'news-site-parser'); ?>
@@ -846,7 +859,7 @@ private function get_imported_categories($with_stats = false) {
 
         register_setting('news_parser_settings', 'news_parser_chatgpt_model', array(
             'type' => 'string',
-            'default' => 'gpt-4.5',
+            'default' => 'gpt-4.1-mini',
             'sanitize_callback' => 'sanitize_text_field'
         ));
 
@@ -1534,7 +1547,7 @@ public function handle_save_parser_settings() {
 
     if (isset($_POST['chatgpt_model'])) {
         $model = sanitize_text_field($_POST['chatgpt_model']);
-        if (in_array($model, array('gpt-4', 'gpt-3.5-turbo'))) {
+        if (in_array($model, $this->get_openai_models(), true)) {
             update_option('news_parser_chatgpt_model', $model);
         }
     }
@@ -1789,7 +1802,7 @@ public function ajax_test_chatgpt() {
         return;
     }
 
-    $model = get_option('news_parser_chatgpt_model', 'gpt-4.5');
+    $model = get_option('news_parser_chatgpt_model', $this->get_default_openai_model());
 
     // Тестовый запрос к Responses API
     $response = wp_remote_post('https://api.openai.com/v1/responses', array(
@@ -2094,7 +2107,7 @@ public function handle_save_chatgpt_settings() {
     // Save model
     if (isset($_POST['chatgpt_model'])) {
         $model = sanitize_text_field($_POST['chatgpt_model']);
-        if (in_array($model, array('gpt-4.5', 'gpt-4.1', 'gpt-4', 'gpt-3.5-turbo'))) {
+        if (in_array($model, $this->get_openai_models(), true)) {
             update_option('news_parser_chatgpt_model', $model);
         }
     }
