@@ -2,7 +2,7 @@
 /*
 Plugin Name: News Site Parser
 Description: Parsing news from other WordPress sites with SpinnerChief API integration
-Version: 1.7.0
+Version: 1.7.2
 Author: Ulugbek Yuldoshev
 License: GPL v2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
