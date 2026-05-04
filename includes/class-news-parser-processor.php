@@ -197,6 +197,7 @@ class News_Parser_Processor
                 if ($paraphrased_content) {
                     $post_content = $paraphrased_content;
                     $this->log("Контент успешно парафразирован");
+                    $this->log("Парафраз контента (фрагмент): " . $this->truncate_for_log(wp_strip_all_tags($post_content), 700));
                 } else {
                     $this->log("Ошибка парафраза контента", 'warning');
                 }
@@ -206,6 +207,7 @@ class News_Parser_Processor
                     if ($paraphrased_excerpt) {
                         $post_excerpt = $paraphrased_excerpt;
                         $this->log("Отрывок успешно парафразирован");
+                        $this->log("Парафраз отрывка: " . $post_excerpt);
                     }
                 }
             }
@@ -522,7 +524,7 @@ class News_Parser_Processor
             return false;
         }
 
-        $model = get_option('news_parser_chatgpt_model', 'gpt-4.5');
+        $model = get_option('news_parser_chatgpt_model', 'gpt-4.1-mini');
         $prompt = "Rephrase the following text, preserving its meaning and HTML formatting. Make the text unique: \n\n" . $text;
         return $this->request_openai_paraphrase($api_key, $model, $prompt);
     }
@@ -560,6 +562,18 @@ class News_Parser_Processor
                 update_option('news_parser_instagram_posts_count', (int)get_option('news_parser_instagram_posts_count', 0) + 1);
             }
         }
+    }
+
+    /**
+     * Safely truncate text for logging
+     */
+    private function truncate_for_log($text, $length = 700)
+    {
+        if (function_exists('mb_substr')) {
+            return mb_substr($text, 0, $length);
+        }
+
+        return substr($text, 0, $length);
     }
 
     /**
